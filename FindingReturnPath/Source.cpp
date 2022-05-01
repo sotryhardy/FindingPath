@@ -173,23 +173,20 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
-	// In a moment we will get rid of the surface as we no longer need that. But let's keep the image dimensions.
 	int tex_width = surface->w;
 	int tex_height = surface->h;
 
 	// Bye-bye the surface
 	SDL_FreeSurface(surface);
 
-	Block RedBlock, BlueBlock, BlackBlock;
+	Block BlackBlock;
 	Player Ship;
 	SDL_Surface* s;
 
 	int WidthPixels = 1920 / WIDTH;
 	int HeightPixels = 1080 / HEIGHT;
 
-	Position CurrentShipPosition{ 7, 10 };
-	Position GoalPosition = CurrentShipPosition;
-	Position CurrentBlockPosition = CurrentShipPosition;
+	Position GoalPosition;
 
 	s = SDL_CreateRGBSurface(0, WidthPixels, HeightPixels, 32, 0, 0, 0, 0);
 	BlackBlock.Init(SDL_CreateTextureFromSurface(renderer, s), WidthPixels, HeightPixels);
@@ -215,9 +212,6 @@ int main(int argc, char* argv[])
 	bool finding = false;
 	bool PathGenerate = false;
 	bool GetTimeOfAlgorytm = false;
-
-	int PastPositionX;
-	int PastPositionY;
 
 	bool done = false;
 	SDL_Event sdl_event;
