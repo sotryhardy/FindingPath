@@ -91,37 +91,42 @@ struct List
 struct Stack
 {
 	List* LastElement = nullptr;
-	void AddElement(int x, int y)
-	{
-		List* NewElement = (List*)malloc(sizeof(List));
-		NewElement->PastElement = LastElement;
-		NewElement->X = x;
-		NewElement->Y = y;
-		LastElement = NewElement;
-	}
-	void DeleteLastElement()
-	{
-		if (LastElement)
-		{
-			List* PastElement = LastElement->PastElement;
-			free(LastElement);
-			LastElement = PastElement;
-		}
-		else
-		{
-			printf("You Delete non-existent element!");
-			abort();
-		}
-	}
-
-	void Clear()
-	{
-		while (LastElement)
-		{
-			DeleteLastElement();
-		}
-	}
+	void AddElement(int x, int y);
+	void DeleteLastElement();
+	void Clear();
 };
+
+void Stack::AddElement(int x, int y)
+{
+	List* NewElement = (List*)malloc(sizeof(List));
+	NewElement->PastElement = LastElement;
+	NewElement->X = x;
+	NewElement->Y = y;
+	LastElement = NewElement;
+}
+
+void Stack::DeleteLastElement()
+{
+	if (LastElement)
+	{
+		List* PastElement = LastElement->PastElement;
+		free(LastElement);
+		LastElement = PastElement;
+	}
+	else
+	{
+		printf("You Delete non-existent element!");
+		abort();
+	}
+}
+
+void Stack::Clear()
+{
+	while (LastElement)
+	{
+		DeleteLastElement();
+	}
+}
 
 int main(int argc, char* argv[])
 {
