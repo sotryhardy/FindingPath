@@ -1,11 +1,14 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdlib.h>
 #include "SDL.h"
 #include "SDL_image.h"
 #include <Windows.h>
+#include <string.h>
 
 typedef unsigned char uchar;
 typedef unsigned int uint;
+typedef uchar mapType;			//if i will want to change the type for the map i will change it here
 
 uint SCREEN_WIDTH;
 uint SCREEN_HIGHT;
@@ -13,6 +16,13 @@ uint SCREEN_HIGHT;
 const int WIDTH = 15;
 const int HEIGHT = 11;
 
+enum WorldIndexes
+{
+	field = 1,
+	//road...
+	//swamp...
+	obstacle = 255,
+};
 
 struct Vec2i
 {
@@ -248,42 +258,58 @@ int SDL_StartInit(SDL_Renderer** renderer, SDL_Window** window)
 	return 0;
 }
 
-void DrawMap(uchar** grid)
+void SumString(char* string, const char* value)
 {
+	strcpy(string + strlen(string), value);
+}
+
+void DrawMap(mapType** grid)
+{
+	char map[120 * 90] = "";
 	for (int i = 0; i < HEIGHT; i++)
 	{
 		for (int j = 0; j < WIDTH; j++)
 		{
-			printf("%i \t", grid[i][j]);
+			char buf[10] = "";
+			sprintf(buf, "%i\t", grid[i][j]);
+			SumString(map, buf);
 		}
-		printf("\n\n\n");
+		SumString(map,"\n\n\n");
 	}
-	printf("\n\n\n");
+	SumString(map,"\n\n\n");
+	printf("%s", map);
 }
 
-Queue FindPath(Vec2i start_position, Vec2i end_position, uchar** battlefield)
+Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield)
 {
+	//https://nrsyed.com/2017/12/30/animating-the-grassfire-path-planning-algorithm/
+	// Algorytn is based on finnding path starting from the end to start 
 	Queue search_queue ,path;
 	search_queue.AddNode(end_position);
 	if (start_position.X == end_position.X && start_position.Y == end_position.Y || battlefield[end_position.Y][end_position.X] == 255)
 	{
 		return path;
 	}
-	uchar** grid = (uchar**)malloc(sizeof(uchar*) * HEIGHT);
+	mapType** grid = (mapType**)malloc(sizeof(mapType*) * HEIGHT);	// copy original battlefield 
 	for (int i = 0; i < HEIGHT; i++)
 	{
-		grid[i] = (uchar*)malloc(sizeof(uchar) * WIDTH);
+		grid[i] = (mapType*)malloc(sizeof(uchar) * WIDTH);
 		for (int j = 0; j < WIDTH; j++)
 		{
 			grid[i][j] = battlefield[i][j];
 		}
 	}
-	while (!search_queue.IsEmpty() && path.IsEmpty())
+
+	grid[end_position.Y][end_position.X] += 1;			//End point designation
+
+	while (!search_queue.IsEmpty() && path.IsEmpty()) 
 	{
 		const Vec2i current_pos = search_queue.FirstNode->position;
-		int index = grid[current_pos.Y][current_pos.X] + 1;
 		search_queue.DeleteFirstNode();
-		for (int i = -1; i <= 1; i++)
+
+		uchar next_value = grid[current_pos.Y][current_pos.X] + 1;
+
+		for (int i = -1; i <= 1; i++)		//cheking neighbour points of current point 
 			for (int j = -1; j <= 1; j++)
 				if (i * j == 0 && i != j)
 				{
@@ -291,37 +317,40 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, uchar** battlefield)
 					if (neighbour.X == start_position.X && neighbour.Y == start_position.Y)
 					{
 						path.AddNode(neighbour);
-						grid[neighbour.Y][neighbour.X] = index;
+						grid[neighbour.Y][neighbour.X] = next_value;
 					}
-					else if (neighbour.X >= 0 && neighbour.Y >= 0 && neighbour.X < WIDTH && neighbour.Y < HEIGHT && (neighbour.X != end_position.X || neighbour.Y != end_position.Y))
+					else if (neighbour.X >= 0 && neighbour.Y >= 0 && neighbour.X < WIDTH && neighbour.Y < HEIGHT)
 					{
-						if (grid[neighbour.Y][neighbour.X] > 0 && grid[neighbour.Y][neighbour.X] < 255 && grid[neighbour.Y][neighbour.X] == battlefield[neighbour.Y][neighbour.X])
+						if (grid[neighbour.Y][neighbour.X] != obstacle && grid[neighbour.Y][neighbour.X] == battlefield[neighbour.Y][neighbour.X])	// if neighbour is not obstacle and was not edited by previouses iterations 
 						{
-							search_queue.AddNode(neighbour);
-							grid[neighbour.Y][neighbour.X] = index;
+							search_queue.AddNode(neighbour); // add point to check-list 
+							grid[neighbour.Y][neighbour.X] = next_value;
 						}
 					}
 				}
 	}
 
-	search_queue.Clear();
-	DrawMap(grid);
+	search_queue.Clear(); 
+	DrawMap(grid);			//TODO: on assection-based for debug configuration
 	if (path.FirstNode)
 	{
 		Vec2i current_pos = path.FirstNode->position;
-		int index = grid[current_pos.Y][current_pos.X] - 1;
-		while (index > 1)
+		int next_value = grid[current_pos.Y][current_pos.X] - 1;
+		while (next_value > grid[end_position.Y][end_position.X])
 		{
 			for (int i = -1; i <= 1; i++)
 				for (int j = -1; j <= 1; j++)
 					if (i * j == 0 && i != j)
 					{
 						Vec2i neighbour{ current_pos.X + i, current_pos.Y + j};
-						if (grid[neighbour.Y][neighbour.X] == index)
+						if (neighbour.X >= 0 && neighbour.Y >= 0 && neighbour.X < WIDTH && neighbour.Y < HEIGHT)
 						{
-							path.AddNode(neighbour);
-							current_pos = neighbour;
-							index--;
+							if (grid[neighbour.Y][neighbour.X] == next_value)
+							{
+								path.AddNode(neighbour);
+								current_pos = neighbour;
+								next_value--;
+							}
 						}
 					}
 		}
@@ -337,37 +366,35 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, uchar** battlefield)
 
 int main(int argc, char* argv[])
 {
-	SDL_Renderer* renderer;
+	SDL_Renderer* renderer;						//creating pointers in this locality zone
 	SDL_Window* window;
 
-	if (SDL_StartInit(&renderer, &window))
-		return -1;
+	if (SDL_StartInit(&renderer, &window))		//Initialization of SDL
+		return -1;								// If you need to include more you can do it in this function
 
-	SDL_SetRenderDrawColor(renderer, 20, 13, 39, 255);
-
+	SDL_SetRenderDrawColor(renderer, 20, 13, 39, 255);		//fill empry with color
 
 	Image BlackRect;
 	Character Ship;
 
-	int WidthPixels = SCREEN_WIDTH / WIDTH;
-	int HeightPixels = SCREEN_HIGHT / HEIGHT;
+	Vec2i PointSize{ SCREEN_WIDTH / WIDTH , SCREEN_HIGHT / HEIGHT }; //size of 1 part of screen in pixels
 
-	Ship.Init("image.png", { WidthPixels, HeightPixels }, { 7.0f, 10.0f }, renderer);
-	BlackRect.CreateRGBRect(renderer, { 0, 0, 0, 0 }, { WidthPixels, HeightPixels });
+	Ship.Init("image.png", PointSize, { 7.0f, 10.0f }, renderer);
+	BlackRect.CreateRGBRect(renderer, { 0, 0, 0, 0 }, PointSize);	//I will use it for obstacle
 
-	uchar** battlefield = (uchar**)malloc(sizeof(uchar*) * HEIGHT);
+	mapType** battlefield = (mapType**)malloc(sizeof(mapType*) * HEIGHT);
 	for (int i = 0; i < HEIGHT; i++)
 	{
-		battlefield[i] = (uchar*)malloc(sizeof(uchar) * WIDTH);
+		battlefield[i] = (uchar*)malloc(sizeof(uchar) * WIDTH);					//initialization of battlefield
 		for (int j = 0; j < WIDTH; j++)
 		{
-			battlefield[i][j] = 1;
+			battlefield[i][j] = field;
 		}
 	}
 
 	battlefield[2][7] = 255;
 	battlefield[3][6] = 255;
-	battlefield[4][7] = 255;
+	battlefield[4][7] = 255;			//initialization of obstacle's positions 
 	battlefield[3][8] = 255;
 	for (int i = 1; i < WIDTH - 1; i++)
 	{
@@ -377,7 +404,7 @@ int main(int argc, char* argv[])
 	Queue Path;
 	bool done = false;
 	SDL_Event sdl_event;
-	while (!done)
+	while (!done)				//start main cycle  for game
 	{
 		int lasttime = SDL_GetTicks();
 		while (SDL_PollEvent(&sdl_event))
@@ -401,18 +428,19 @@ int main(int argc, char* argv[])
 					break;
 				}
 			}
-			else if (sdl_event.type == SDL_MOUSEBUTTONDOWN)
+			else if (sdl_event.type == SDL_MOUSEBUTTONDOWN)	
 			{
+				// When LBM was clicked i start finding path
 				switch (sdl_event.button.button)
 				{
 				case SDL_BUTTON_LEFT:
 				{
 					Vec2i screen_mouse_pos, world_mouse_pos;
 					SDL_GetMouseState(&screen_mouse_pos.X, &screen_mouse_pos.Y);
-					world_mouse_pos = { screen_mouse_pos.X / WidthPixels, screen_mouse_pos.Y / HeightPixels };
+					world_mouse_pos = { screen_mouse_pos.X / PointSize.X, screen_mouse_pos.Y / PointSize.Y };
 					Path.Clear();
 					int last = SDL_GetTicks();
-					Path = FindPath({ (int)Ship.position.X, (int)Ship.position.Y }, world_mouse_pos, battlefield);
+					Path = FindPath({ (int)Ship.position.X, (int)Ship.position.Y }, world_mouse_pos, battlefield);	//get the path from function
 					printf("\n%i", SDL_GetTicks() - last);
 					break;
 				}
@@ -422,16 +450,13 @@ int main(int argc, char* argv[])
 			}
 		}
 
-		// Clearing the screen
 		SDL_RenderClear(renderer);
-
-		
 
 		if (Path.FirstNode)
 		{
-			Ship.position = { (float)Path.FirstNode->position.X, (float)Path.FirstNode->position.Y };
+			Ship.position = { (float)Path.FirstNode->position.X, (float)Path.FirstNode->position.Y };	//move character in the right point
 			Path.DeleteFirstNode();
-			Sleep(100);
+			Sleep(100);			//!!!!!			//TODO: on mover-based
 		}
 
 		for (int i = 0; i < HEIGHT; i++)
@@ -439,7 +464,7 @@ int main(int argc, char* argv[])
 			for (int j = 0; j < WIDTH; j++)
 			{
 				if (battlefield[i][j] == 255)
-				{
+				{																			// } rendering obstacles 
 					BlackRect.Render(renderer, { (float)j, (float)i });
 				}
 			}
@@ -457,7 +482,7 @@ int main(int argc, char* argv[])
 	}
 
 	free(battlefield);
-
+	Path.Clear();
 	BlackRect.Destroy();
 	Ship.Destroy();
 
@@ -467,6 +492,5 @@ int main(int argc, char* argv[])
 	IMG_Quit();
 	SDL_Quit();
 
-	// Done.
 	return 0;
 }
