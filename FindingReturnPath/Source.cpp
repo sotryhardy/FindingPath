@@ -5,6 +5,7 @@
 #include "SDL_image.h"
 #include <Windows.h>
 #include <string.h>
+#include <time.h>
 
 typedef unsigned char uchar;
 typedef unsigned int uint;
@@ -21,7 +22,15 @@ enum WorldIndexes
 	field = 1,
 	//road...
 	//swamp...
+	//hm... i cant use float here... TODO
 	obstacle = 255,
+};
+
+enum Commands
+{
+	Neutral,
+	Red,
+	Blue
 };
 
 struct Vec2i
@@ -42,6 +51,22 @@ struct Vec4c
 	uchar G;
 	uchar B;
 	uchar A;
+};
+
+struct ListNode
+{
+	ListNode* another_node;
+	Vec2i position;
+};
+
+struct Queue
+{
+	void AddNode(Vec2i nodePosition);
+	bool IsEmpty();
+	void DeleteFirstNode();
+	void Clear();
+
+	ListNode* FirstNode = nullptr;
 };
 
 struct Image
@@ -86,8 +111,8 @@ void Image::Destroy()
 void Image::Render(SDL_Renderer* renderer, Vec2f position)
 {
 	SDL_Rect rect;
-	rect.x = (int)position.X * size.X;
-	rect.y = (int)position.Y * size.Y;
+	rect.x = position.X * size.X;
+	rect.y = position.Y * size.Y;
 	rect.w = size.X;
 	rect.h = size.Y;
 
@@ -112,27 +137,31 @@ void Image::CreateRGBRect(SDL_Renderer* renderer, Vec4c colors, Vec2i tex_size)
 }
 
 
-
 struct Character
 {
-	void Init(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer);
+	void Init(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer, float ch_speed, Commands ch_side);
 	void Destroy();
 
 	void Render(SDL_Renderer* renderer);
+	void MoveInit(Queue _path);
+	void Move(float Deltatime);
+	bool IsMove();
 
 	Image texture;
 	Vec2f position;
+	Queue path;
+	Commands side;
+	float speed;
+	bool do_get_position;
 };
 
-void Character::Init(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer)
+void Character::Init(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer, float ch_speed, Commands ch_side = Neutral)
 {
 	texture.Init(fileName, texSize, renderer);
 	position = startPosition;
-}
-
-void Character::Render(SDL_Renderer* renderer)
-{
-	texture.Render(renderer, position);
+	side = ch_side;
+	speed = ch_speed;
+	do_get_position = true;
 }
 
 void Character::Destroy()
@@ -140,11 +169,43 @@ void Character::Destroy()
 	texture.Destroy();
 }
 
-struct ListNode
+void Character::Render(SDL_Renderer* renderer)
 {
-	ListNode* another_node;
-	Vec2i position;
-};
+	texture.Render(renderer, position);
+}
+
+void Character::MoveInit(Queue _path)
+{
+	path.Clear();
+	path = _path;
+}
+
+void Character::Move(float Deltatime)
+{
+	if (!path.IsEmpty())
+	{
+		static Vec2i goal, direction;
+		if (do_get_position)
+		{
+			goal = path.FirstNode->position;
+			direction = { goal.X - (int)position.X, goal.Y - (int)position.Y };
+			do_get_position = false;
+		}
+		position.X += direction.X * speed * Deltatime;
+		position.Y += direction.Y * speed * Deltatime;
+		if (fabs(position.X - goal.X) < speed * Deltatime  && fabs(position.Y - goal.Y) < speed * Deltatime )
+		{
+			position = { (float)goal.X, (float)goal.Y };
+			do_get_position = true;
+			path.DeleteFirstNode();
+		}
+	}
+}
+
+bool Character::IsMove()
+{
+	return !path.IsEmpty();
+}
 
 struct Stack
 {
@@ -180,27 +241,6 @@ void Stack::Clear()
 	}
 }
 
-struct Queue
-{
-	void AddNode(Vec2i nodePosition);
-	bool IsEmpty();
-	void DeleteFirstNode();
-	void Clear();
-
-	ListNode* FirstNode = nullptr;
-};
-
-void Queue::AddNode(Vec2i nodePosition)
-{
-	ListNode** last_node = &FirstNode;
-	while (*last_node)
-	{
-		last_node = &(*last_node)->another_node;
-	}
-	*last_node = (ListNode*)malloc(sizeof(ListNode));
-	(*last_node)->another_node = nullptr;
-	(*last_node)->position = nodePosition;
-}
 void Queue::DeleteFirstNode()
 {
 	ListNode* next_node = FirstNode->another_node;
@@ -216,6 +256,18 @@ void Queue::Clear()
 	}
 }
 
+void Queue::AddNode(Vec2i nodePosition)
+{
+	ListNode** last_node = &FirstNode;
+	while (*last_node)
+	{
+		last_node = &(*last_node)->another_node;
+	}
+	*last_node = (ListNode*)malloc(sizeof(ListNode));
+	(*last_node)->another_node = nullptr;
+	(*last_node)->position = nodePosition;
+}
+
 
 bool Queue::IsEmpty()
 {
@@ -226,6 +278,7 @@ int SDL_StartInit(SDL_Renderer** renderer, SDL_Window** window)
 {
 	SCREEN_WIDTH = GetSystemMetrics(SM_CXSCREEN);
 	SCREEN_HIGHT = GetSystemMetrics(SM_CYSCREEN);
+	srand(time(NULL));
 	SDL_SetMainReady();
 	int result = 0;
 	result = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
@@ -280,16 +333,13 @@ void DrawMap(mapType** grid)
 	printf("%s", map);
 }
 
-Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield)
+Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, Character* characters = nullptr, int amount = 0)
 {
 	//https://nrsyed.com/2017/12/30/animating-the-grassfire-path-planning-algorithm/
 	// Algorytn is based on finnding path starting from the end to start 
 	Queue search_queue ,path;
 	search_queue.AddNode(end_position);
-	if (start_position.X == end_position.X && start_position.Y == end_position.Y || battlefield[end_position.Y][end_position.X] == 255)
-	{
-		return path;
-	}
+
 	mapType** grid = (mapType**)malloc(sizeof(mapType*) * HEIGHT);	// copy original battlefield 
 	for (int i = 0; i < HEIGHT; i++)
 	{
@@ -300,7 +350,18 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield)
 		}
 	}
 
-	grid[end_position.Y][end_position.X] += 1;			//End point designation
+	for(int i = 0; i < amount; i++)
+	{
+		Vec2f pos = characters[i].position;
+		grid[(int)pos.Y][(int)pos.X] = obstacle;
+	}
+
+	if (grid[end_position.Y][end_position.X] == obstacle)
+	{
+		return path;
+	}
+
+	grid[end_position.Y][end_position.X] = battlefield[end_position.Y][end_position.X] + 1;			//End point designation
 
 	while (!search_queue.IsEmpty() && path.IsEmpty()) 
 	{
@@ -364,22 +425,64 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield)
 	return path;
 }
 
+void CharactersInit(Character* arr, int amount, Vec2i PointSize, SDL_Renderer* renderer, float character_speed)
+{
+	int above_indent = 1;
+	int size_indent = 1;
+	for (int i = 0; i < amount; i++)
+	{
+		if (!(i % 2))
+			arr[i].Init("image.png", PointSize, { (float)size_indent, (float)above_indent + i + 1 }, renderer, character_speed, Red);
+		else
+			arr[i].Init("image.png", PointSize, { (float)WIDTH - 1 - size_indent, (float)above_indent + i }, renderer, character_speed, Blue);
+	}
+}
+
 int main(int argc, char* argv[])
 {
 	SDL_Renderer* renderer;						//creating pointers in this locality zone
 	SDL_Window* window;
+	bool LBM = false;
+	bool PlayerPart = true;
+	bool EnemyPart = false;
 
 	if (SDL_StartInit(&renderer, &window))		//Initialization of SDL
 		return -1;								// If you need to include more you can do it in this function
 
-	SDL_SetRenderDrawColor(renderer, 20, 13, 39, 255);		//fill empry with color
+	SDL_SetRenderDrawColor(renderer, 20, 13, 39, 255);		//fill empty with color
 
 	Image BlackRect;
-	Character Ship;
+	
+	int CharactersAmount = 8; 
+	int PlayerAmount = CharactersAmount / 2;
+	int EnemyAmount = CharactersAmount / 2;
+	Character* Characters = new Character[CharactersAmount];
+
+	float character_speed = 10.0f;
 
 	Vec2i PointSize{ SCREEN_WIDTH / WIDTH , SCREEN_HIGHT / HEIGHT }; //size of 1 part of screen in pixels
 
-	Ship.Init("image.png", PointSize, { 7.0f, 10.0f }, renderer);
+	CharactersInit(Characters, CharactersAmount, PointSize, renderer, character_speed);
+
+	Character** PlayerCommand = new Character * [PlayerAmount];
+	Character** EnemyCommand = new Character * [EnemyAmount];
+
+	for (int i = 0; i < CharactersAmount; i++)
+	{
+		static int Pindex = 0, Eindex = 0;
+		if (Characters[i].side == Red)
+		{
+			PlayerCommand[Pindex] = &Characters[i];
+			Pindex++;
+		}
+		else
+		{
+			EnemyCommand[Eindex] = &Characters[i];
+			Eindex++;
+		}
+
+	}
+
 	BlackRect.CreateRGBRect(renderer, { 0, 0, 0, 0 }, PointSize);	//I will use it for obstacle
 
 	mapType** battlefield = (mapType**)malloc(sizeof(mapType*) * HEIGHT);
@@ -392,10 +495,10 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	battlefield[2][7] = 255;
-	battlefield[3][6] = 255;
-	battlefield[4][7] = 255;			//initialization of obstacle's positions 
-	battlefield[3][8] = 255;
+	battlefield[2][7] = obstacle;
+	battlefield[3][6] = obstacle;
+	battlefield[4][7] = obstacle;			//initialization of obstacle's positions 
+	battlefield[3][8] = obstacle;
 	for (int i = 1; i < WIDTH - 1; i++)
 	{
 		battlefield[HEIGHT / 2][i] = 255;
@@ -404,6 +507,12 @@ int main(int argc, char* argv[])
 	Queue Path;
 	bool done = false;
 	SDL_Event sdl_event;
+	float Deltatime = 0.016;
+	bool CharacterIsMove = false;
+	int PartIndex = 0;
+	int Pindex = 0;
+	int Eindex = 0;
+	Character* CharacterToMove= PlayerCommand[0];
 	while (!done)				//start main cycle  for game
 	{
 		int lasttime = SDL_GetTicks();
@@ -435,13 +544,8 @@ int main(int argc, char* argv[])
 				{
 				case SDL_BUTTON_LEFT:
 				{
-					Vec2i screen_mouse_pos, world_mouse_pos;
-					SDL_GetMouseState(&screen_mouse_pos.X, &screen_mouse_pos.Y);
-					world_mouse_pos = { screen_mouse_pos.X / PointSize.X, screen_mouse_pos.Y / PointSize.Y };
-					Path.Clear();
-					int last = SDL_GetTicks();
-					Path = FindPath({ (int)Ship.position.X, (int)Ship.position.Y }, world_mouse_pos, battlefield);	//get the path from function
-					printf("\n%i", SDL_GetTicks() - last);
+					LBM = true;
+					
 					break;
 				}
 				default:
@@ -452,12 +556,55 @@ int main(int argc, char* argv[])
 
 		SDL_RenderClear(renderer);
 
-		if (Path.FirstNode)
+		if (LBM && PlayerPart)
 		{
-			Ship.position = { (float)Path.FirstNode->position.X, (float)Path.FirstNode->position.Y };	//move character in the right point
-			Path.DeleteFirstNode();
-			Sleep(100);			//!!!!!			//TODO: on mover-based
+			LBM = false;
+			PlayerPart = false;
+			CharacterIsMove = true;
+			CharacterToMove = PlayerCommand[Pindex % PlayerAmount];
+			Pindex++;
+			Vec2i screen_mouse_pos, world_mouse_pos;
+			SDL_GetMouseState(&screen_mouse_pos.X, &screen_mouse_pos.Y);
+			world_mouse_pos = { screen_mouse_pos.X / PointSize.X, screen_mouse_pos.Y / PointSize.Y };
+			int last = SDL_GetTicks();
+			CharacterToMove->MoveInit(FindPath({ (int)CharacterToMove->position.X, (int)CharacterToMove->position.Y }, world_mouse_pos, battlefield, Characters, CharactersAmount));	//get the path from function
+			printf("\n%i", SDL_GetTicks() - last);
 		}
+
+		if (EnemyPart)
+		{
+			EnemyPart = false;
+			CharacterIsMove = true;
+			Vec2i goal = { rand() % WIDTH, rand() % HEIGHT };
+			Vec2f pos = EnemyCommand[Eindex % EnemyAmount]->position;
+			Queue Path = FindPath({ (int)pos.X, (int)pos.Y }, goal, battlefield, Characters, CharactersAmount);
+			while (Path.IsEmpty())
+			{
+				goal = { rand() % WIDTH, rand() % HEIGHT };
+				Path = FindPath({ (int)pos.X, (int)pos.Y }, goal, battlefield, Characters, CharactersAmount);
+			}
+			CharacterToMove = EnemyCommand[Eindex % EnemyAmount];
+			Eindex++;
+			CharacterToMove->MoveInit(Path);
+
+		}
+		
+		if (CharacterIsMove && !(CharacterToMove->IsMove()))
+		{
+			CharacterIsMove = false;
+			PartIndex++;
+			if (PartIndex % 2)
+			{
+				EnemyPart = true;
+			}
+			else
+			{
+				PlayerPart = true;
+			}
+		}
+		
+		CharacterToMove->Move(Deltatime);
+
 
 		for (int i = 0; i < HEIGHT; i++)
 		{
@@ -470,9 +617,16 @@ int main(int argc, char* argv[])
 			}
 		}
 
-		Ship.Render(renderer);
+		for(int i = 0; i < CharactersAmount; i++)
+			Characters[i].Render(renderer);
 
 		SDL_RenderPresent(renderer);
+		int TotalTime = SDL_GetTicks();
+		int SleepTime = Deltatime * 1000 - (TotalTime - lasttime);
+		if (SleepTime > 0)
+		{
+			Sleep(SleepTime);
+		}
 
 	}
 
@@ -481,11 +635,13 @@ int main(int argc, char* argv[])
 		free(battlefield[i]);
 	}
 
+
+
 	free(battlefield);
 	Path.Clear();
 	BlackRect.Destroy();
-	Ship.Destroy();
-
+	Characters[0].Destroy();
+	delete[] Characters;
 	SDL_DestroyRenderer(renderer);
 
 	SDL_DestroyWindow(window);
