@@ -429,12 +429,23 @@ void CharactersInit(Character* arr, int amount, Vec2i PointSize, SDL_Renderer* r
 {
 	int above_indent = 1;
 	int size_indent = 1;
+	for (int i = 0; i < amount ; i++)
+	{
+		if(!(i%2))
+			arr[i].Init("image.png", PointSize, { (float)size_indent, (float)above_indent + (i / 2) }, renderer, character_speed, Red);
+		else
+			arr[i].Init("image.png", PointSize, { (float)WIDTH - 1 - size_indent, (float)above_indent + (i / 2) }, renderer, character_speed, Blue);
+	}
+}
+
+void ObstacleGenerate(mapType** battlefield,int min_amount, int max_amount)
+{
+	int amount = rand() % (max_amount- min_amount) + min_amount;
 	for (int i = 0; i < amount; i++)
 	{
-		if (!(i % 2))
-			arr[i].Init("image.png", PointSize, { (float)size_indent, (float)above_indent + i + 1 }, renderer, character_speed, Red);
-		else
-			arr[i].Init("image.png", PointSize, { (float)WIDTH - 1 - size_indent, (float)above_indent + i }, renderer, character_speed, Blue);
+		int x = rand() % WIDTH;
+		int y = rand() % HEIGHT;
+		battlefield[y][x] = obstacle;
 	}
 }
 
@@ -449,11 +460,11 @@ int main(int argc, char* argv[])
 	if (SDL_StartInit(&renderer, &window))		//Initialization of SDL
 		return -1;								// If you need to include more you can do it in this function
 
-	SDL_SetRenderDrawColor(renderer, 20, 13, 39, 255);		//fill empty with color
+	SDL_SetRenderDrawColor(renderer, 125, 125, 125, 255);		//fill empty with color
 
 	Image BlackRect;
 	
-	int CharactersAmount = 8; 
+	int CharactersAmount = 16; 
 	int PlayerAmount = CharactersAmount / 2;
 	int EnemyAmount = CharactersAmount / 2;
 	Character* Characters = new Character[CharactersAmount];
@@ -495,14 +506,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	battlefield[2][7] = obstacle;
-	battlefield[3][6] = obstacle;
-	battlefield[4][7] = obstacle;			//initialization of obstacle's positions 
-	battlefield[3][8] = obstacle;
-	for (int i = 1; i < WIDTH - 1; i++)
-	{
-		battlefield[HEIGHT / 2][i] = 255;
-	}
+	ObstacleGenerate(battlefield,10, 20);
 
 	Queue Path;
 	bool done = false;
