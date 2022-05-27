@@ -143,7 +143,10 @@ xcopy /Y "$(SolutionDir)image\*.png" "$(ProjectDir)"</Command>
     <PostBuildEvent>
       <Command>xcopy /Y "$(SolutionDir)SDL2\dll\*.dll" "$(OutDir)"
 xcopy /Y "$(SolutionDir)image\*.png" "$(OutDir)"
-xcopy /Y "$(SolutionDir)image\*.png" "$(ProjectDir)"</Command>
+xcopy /Y "$(SolutionDir)image\*.png" "$(ProjectDir)"
+xcopy /Y "$(SolutionDir)fonts\*.ttf" "$(OutDir)"
+xcopy /Y "$(SolutionDir)fonts\*.ttf" "$(ProjectDir)"
+</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -167,7 +170,10 @@ xcopy /Y "$(SolutionDir)image\*.png" "$(ProjectDir)"</Command>
     <PostBuildEvent>
       <Command>xcopy /Y "$(SolutionDir)SDL2\dll\*.dll" "$(OutDir)"
 xcopy /Y "$(SolutionDir)image\*.png" "$(OutDir)"
-xcopy /Y "$(SolutionDir)image\*.png" "$(ProjectDir)"</Command>
+xcopy /Y "$(SolutionDir)image\*.png" "$(ProjectDir)"
+xcopy /Y "$(SolutionDir)fonts\*.ttf" "$(OutDir)"
+xcopy /Y "$(SolutionDir)fonts\*.ttf" "$(ProjectDir)"
+</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
