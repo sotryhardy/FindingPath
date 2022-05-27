@@ -6,6 +6,7 @@
 #include <Windows.h>
 #include <string.h>
 #include <time.h>
+#include <SDL_ttf.h>
 
 typedef unsigned char uchar;
 typedef unsigned int uint;
@@ -53,6 +54,24 @@ struct Vec4c
 	uchar A;
 };
 
+char* toArray(int number)
+{
+	int n = log10(number) + 1;
+	if (number == 0)
+	{
+		n = 1;
+	}
+	int i;
+	char* numberArray = (char*)calloc(n + 1, sizeof(char));
+	numberArray[n] = '\0';
+	for (i = n - 1; i >= 0; --i, number /= 10)
+	{
+		numberArray[i] = (number % 10) + '0';
+	}
+
+	return numberArray;
+}
+
 struct ListNode
 {
 	ListNode* another_node;
@@ -75,6 +94,7 @@ struct Image
 	void Destroy();
 
 	void Render(SDL_Renderer* renderer, Vec2f position);
+	void AmountRender(SDL_Renderer* renderer, Vec2f position, int amount);
 	void CreateRGBRect(SDL_Renderer* renderer, Vec4c colors, Vec2i tex_size);
 
 	SDL_Texture* texture;
@@ -87,7 +107,7 @@ void Image::Init(const char* image_name, Vec2i texSize, SDL_Renderer* renderer)
 	if (!surface)
 	{
 		printf("Unable to load an image %s. Error: %s", image_name, IMG_GetError());
-		return ;
+		return;
 	}
 
 
@@ -95,13 +115,15 @@ void Image::Init(const char* image_name, Vec2i texSize, SDL_Renderer* renderer)
 	if (!texture)
 	{
 		printf("Unable to create a texture. Error: %s", SDL_GetError());
-		return ;
+		return;
 	}
 
 	size = texSize;
-	
+
 	SDL_FreeSurface(surface);
 }
+
+
 
 void Image::Destroy()
 {
@@ -125,6 +147,8 @@ void Image::Render(SDL_Renderer* renderer, Vec2f position)
 		SDL_FLIP_NONE);
 }
 
+
+
 void Image::CreateRGBRect(SDL_Renderer* renderer, Vec4c colors, Vec2i tex_size)
 {
 	SDL_Surface* surface;
@@ -136,10 +160,79 @@ void Image::CreateRGBRect(SDL_Renderer* renderer, Vec4c colors, Vec2i tex_size)
 	SDL_FreeSurface(surface);
 }
 
+struct Text
+{
+	Text(const char* fontName, Vec2i texSize, SDL_Renderer* renderer, SDL_Color colorFont);
+	Text();
+	~Text();
+	void AmountRender(SDL_Renderer* renderer, Vec2f position, int amount);
+private:
+	SDL_Texture* texture;
+	TTF_Font* font;
+	SDL_Color color;
+	Vec2i size;
+	int past_amount = 0;
+};
+
+Text::Text() {}
+
+Text::Text(const char* fontName, Vec2i texSize, SDL_Renderer* renderer, SDL_Color colorFont = { 0, 0, 0 })
+{
+	font = TTF_OpenFont(fontName, 24);
+	size = texSize;
+	color = colorFont;
+	SDL_Surface* surface = SDL_CreateRGBSurface(0, size.X, size.Y, 32, 0, 0, 0, 0);
+	texture = SDL_CreateTextureFromSurface(renderer, surface);
+	SDL_FreeSurface(surface);
+}
+
+Text::~Text()
+{
+	if (texture)
+		SDL_DestroyTexture(texture);
+}
+
+void Text::AmountRender(SDL_Renderer* renderer, Vec2f position, int amount)
+{
+	if (past_amount != amount)
+	{
+		past_amount = amount;
+		char* amount_to_str = toArray(amount);
+		
+		if(texture)
+			SDL_DestroyTexture(texture);
+
+		SDL_Surface* s = TTF_RenderText_Solid(font, amount_to_str, color);
+		if (!s)
+		{
+			printf("Failed to render text");
+			return;
+		}
+		texture = SDL_CreateTextureFromSurface(renderer, s);
+		SDL_FreeSurface(s);
+		free(amount_to_str);
+	}
+
+	SDL_Rect rect;
+	rect.x = position.X * size.X + size.X / 2;
+	rect.y = position.Y * size.Y + size.Y / 2;
+	rect.w = size.X / 2;
+	rect.h = size.Y / 2;
+
+	SDL_RenderCopyEx(renderer,
+		texture,
+		nullptr,
+		&rect,
+		0,
+		nullptr,
+		SDL_FLIP_NONE);
+
+
+}
 
 struct Character
 {
-	void Init(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer, float ch_speed, Commands ch_side);
+	void Init(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer,float attackPower, float ch_health, float ch_speed);
 	void Destroy();
 
 	void Render(SDL_Renderer* renderer);
@@ -147,20 +240,28 @@ struct Character
 	void Move(float Deltatime);
 	bool IsMove();
 
+public:
 	Image texture;
 	Vec2f position;
-	Queue path;
-	Commands side;
+	float attack_power;
+	float health;
 	float speed;
+
+private:
+	Queue path;
 	bool do_get_position;
+	Vec2i goal, direction;
 };
 
-void Character::Init(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer, float ch_speed, Commands ch_side = Neutral)
+#pragma region CharacterFunctions
+
+void Character::Init(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer, float attackPower, float ch_health, float ch_speed)
 {
 	texture.Init(fileName, texSize, renderer);
 	position = startPosition;
-	side = ch_side;
+	attack_power = attackPower;
 	speed = ch_speed;
+	health = ch_health;
 	do_get_position = true;
 }
 
@@ -184,7 +285,6 @@ void Character::Move(float Deltatime)
 {
 	if (!path.IsEmpty())
 	{
-		static Vec2i goal, direction;
 		if (do_get_position)
 		{
 			goal = path.FirstNode->position;
@@ -193,7 +293,7 @@ void Character::Move(float Deltatime)
 		}
 		position.X += direction.X * speed * Deltatime;
 		position.Y += direction.Y * speed * Deltatime;
-		if (fabs(position.X - goal.X) < speed * Deltatime  && fabs(position.Y - goal.Y) < speed * Deltatime )
+		if (fabs(position.X - goal.X) < speed * Deltatime && fabs(position.Y - goal.Y) < speed * Deltatime)
 		{
 			position = { (float)goal.X, (float)goal.Y };
 			do_get_position = true;
@@ -205,6 +305,305 @@ void Character::Move(float Deltatime)
 bool Character::IsMove()
 {
 	return !path.IsEmpty();
+}
+
+Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, Character* characters, int amount);
+
+#pragma endregion 
+
+struct Team;
+
+struct Squad
+{
+	Squad();
+	Squad(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer, float ch_attackPower, float ch_health, float ch_speed, int squad_amount);
+	~Squad();
+
+	void Render(SDL_Renderer* renderer);
+	void MoveInit(Queue init_path);
+	void Move(float Deltatime);
+	void AttackSquadInit(Squad* squadToAttack, mapType** battlefield, Character* characters, int amount_all, Team* teamToAttack, Team* thisTeam);
+	void Attack();
+	void CounterAttack(Squad* squad_to_attack);
+	void MakeDamage(Squad* squad_to_attack);
+	bool IsMove();
+	bool IsEmpty();
+
+public:
+	Character character;
+	float general_attack_power;
+	float general_health;
+	int amount;
+private:
+	Squad* squad_to_attack = nullptr;
+	Team* team_to_attack;
+	Text text;
+};
+
+Squad::Squad() {};
+
+Squad::Squad(const char* fileName, Vec2i texSize, Vec2f startPosition, SDL_Renderer* renderer, float ch_attackPower, float ch_health, float ch_speed, int squadAmount)
+	: text("Oswald-Regular.ttf", texSize, renderer)
+{	
+	character.Init(fileName, texSize, startPosition, renderer,ch_attackPower, ch_health, ch_speed);
+	amount = squadAmount;
+	general_attack_power = amount * ch_attackPower;
+	general_health = ch_health * amount;
+}
+
+Squad::~Squad() 
+{
+	text.~Text();
+}
+
+void Squad::Render(SDL_Renderer* renderer)
+{
+	character.Render(renderer);
+	text.AmountRender(renderer, character.position, amount);
+}
+
+void Squad::MoveInit(Queue init_path)
+{
+	character.MoveInit(init_path);
+}
+
+void Squad::Move(float Deltatime)
+{
+	character.Move(Deltatime);
+	if (squad_to_attack && !IsMove())
+	{
+		Attack();
+		squad_to_attack = nullptr;
+	}
+}
+
+void Squad::AttackSquadInit(Squad* squadToAttack, mapType** battlefield, Character* characters, int amount_all, Team* teamToAttack, Team* thisTeam)
+{
+	team_to_attack = teamToAttack;
+	Vec2i squad_to_attack_pos = { squadToAttack->character.position.X, squadToAttack->character.position.Y };
+	for (int i = -1; i <= 1; i++)
+	{
+		if (IsMove())
+			break;
+
+		for (int j = -1; j <= 1; j++)
+			if (i * j == 0 && i != j)
+			{
+				MoveInit(FindPath({ (int)character.position.X,  (int)character.position.Y }, { squad_to_attack_pos.X + i, squad_to_attack_pos.Y + j }, battlefield, characters, amount_all));
+				if (IsMove())
+				{
+					squad_to_attack = squadToAttack;
+					squadToAttack->team_to_attack = thisTeam;
+					break;
+				}
+			}
+	}
+}
+
+bool Squad::IsEmpty()
+{
+	return !amount;
+}
+
+
+
+bool Squad::IsMove()
+{
+	return character.IsMove();
+}
+
+
+const int max_squads = 15;
+
+struct Team
+{
+	Team(Commands _side);
+	void AddSquad(Squad* squad_to_add);
+	void MakeAction(Vec2i goal, Team* team_to_attack, uchar** battlefield);
+	Squad* GetSquadByIndex(int index);
+	Squad* GetCurrentTourSquad();
+	int GetRealIndex(int index);
+	void MakeActionAI(Team* team_to_attack, mapType** battlefield);
+	Character* GatherEveryCharacters(Team* EnemyTeam, int* size);
+
+public:
+	Squad* squads[max_squads];
+	Commands side;
+	int amount = 0;
+	int squad_index = 0;
+private:
+
+};
+
+Team::Team(Commands _side)
+{
+	side = _side;
+	for (int i = 0; i < max_squads; i++)
+	{
+		squads[i] = nullptr;
+	}
+}
+
+void Team::AddSquad(Squad* squad_to_add)
+{
+	amount++;
+	int i;
+	for (i = 0; squads[i]; i++);
+	squads[i] = squad_to_add;
+}
+
+Squad* Team::GetSquadByIndex(int index)
+{
+	int real_index = - 1;
+	for (int  i = 0; real_index < amount; i++)
+	{
+		if (squads[i]->amount)
+		{
+			real_index++;
+		}
+		if (real_index == index)
+		{
+			return squads[i];
+		}
+	}
+}
+
+
+
+int Team::GetRealIndex(int index)
+{
+	int array_index = -1;
+	for (int i = 0; array_index < amount; i++)
+	{
+		if (squads[i]->amount)
+		{
+			array_index++;
+		}
+		if (array_index == index)
+		{
+			return i;
+		}
+	}
+}
+
+Squad* Team::GetCurrentTourSquad()
+{
+	return squads[GetRealIndex(squad_index)];
+}
+
+void Squad::Attack()
+{
+
+	MakeDamage(squad_to_attack);
+	if (!squad_to_attack->IsEmpty())
+	{
+		squad_to_attack->CounterAttack(this);
+	}
+}
+
+void Squad::CounterAttack(Squad* squadToAttack)
+{
+
+	MakeDamage(squadToAttack);
+
+}
+
+void Squad::MakeDamage(Squad* squad_to_attack)
+{
+	squad_to_attack->general_health -= general_attack_power;
+	squad_to_attack->amount = ceil((float)squad_to_attack->general_health / squad_to_attack->character.health);
+	squad_to_attack->general_attack_power = squad_to_attack->amount * squad_to_attack->character.attack_power;
+
+	if (squad_to_attack->amount <= 0)
+	{
+		squad_to_attack->amount = 0;
+		team_to_attack->squad_index--;
+		team_to_attack->amount -= 1;
+	}
+}
+
+void Team::MakeAction(Vec2i goal, Team* team_to_attack, mapType** battlefield)
+{
+	if (!amount)
+		return;
+	if (squad_index >= amount)
+		squad_index = 0;
+
+	Squad* current_tour_squad = GetCurrentTourSquad();
+	bool attack = false;
+
+	int size = amount + team_to_attack->amount;
+	Character* allCharacters = new Character[size];
+
+	for (size_t i = 0; i < amount; i++)
+	{
+		allCharacters[i] = GetSquadByIndex(i)->character;
+	}
+
+	for (int i = amount; i < size; i++)
+	{
+		allCharacters[i] = team_to_attack->GetSquadByIndex(i - amount)->character;
+	}
+
+	for (int i = 0; i < team_to_attack->amount; i++)
+	{
+		Squad* squad_for_check = team_to_attack->GetSquadByIndex(i);
+		if (goal.X == squad_for_check->character.position.X && goal.Y == squad_for_check->character.position.Y)
+		{
+			current_tour_squad->AttackSquadInit(squad_for_check, battlefield, allCharacters, size, team_to_attack, this);
+			attack = true;
+			break;
+		}
+	}
+	
+	if(!attack)
+		current_tour_squad->MoveInit(FindPath({ (int)current_tour_squad->character.position.X, (int)current_tour_squad->character.position.Y }, goal, battlefield, allCharacters, size));
+
+	squad_index++;
+
+	delete[] allCharacters;
+}
+
+void Team::MakeActionAI(Team* teamToAttack, mapType** battlefield)
+{
+	if (squad_index >= amount)
+		squad_index = 0;
+	Squad* current_tour_squad = GetCurrentTourSquad();
+
+	int index_squad_to_attack = rand() % teamToAttack->amount;
+	int size;
+	
+	Squad* squad_to_attack = teamToAttack->GetSquadByIndex(index_squad_to_attack);
+
+	Character* EveryCharacters = GatherEveryCharacters(teamToAttack,&size);
+
+	current_tour_squad->AttackSquadInit(squad_to_attack, battlefield, EveryCharacters, size, teamToAttack, this);
+
+	if (!current_tour_squad->IsMove())
+	{
+		Vec2i goal = { rand() % WIDTH, rand() % HEIGHT };
+		current_tour_squad->MoveInit(FindPath({(int)current_tour_squad->character.position.X, (int)current_tour_squad->character.position.Y }, goal, battlefield, EveryCharacters, size));
+	}
+	squad_index++;
+	delete[] EveryCharacters;
+}
+
+Character* Team::GatherEveryCharacters(Team* EnemyTeam, int* size)
+{
+	*size = amount + EnemyTeam->amount;
+	Character* EveryCharacters = new Character[*size];
+
+	for (size_t i = 0; i < amount; i++)
+	{
+		EveryCharacters[i] = GetSquadByIndex(i)->character;
+	}
+
+	for (int i = amount; i < *size; i++)
+	{
+		EveryCharacters[i] = EnemyTeam->GetSquadByIndex(i - amount)->character;
+	}
+
+	return EveryCharacters;
 }
 
 struct Stack
@@ -248,6 +647,7 @@ void Queue::DeleteFirstNode()
 	FirstNode = next_node;
 
 }
+
 void Queue::Clear()
 {
 	while (FirstNode)
@@ -267,7 +667,6 @@ void Queue::AddNode(Vec2i nodePosition)
 	(*last_node)->another_node = nullptr;
 	(*last_node)->position = nodePosition;
 }
-
 
 bool Queue::IsEmpty()
 {
@@ -292,6 +691,13 @@ int SDL_StartInit(SDL_Renderer** renderer, SDL_Window** window)
 	if (!(result & IMG_INIT_PNG))
 	{
 		printf("Can't initialize SDL image. Error: %s", SDL_GetError());
+		return -1;
+	}
+
+	result = TTF_Init();
+
+	if (result)
+	{
 		return -1;
 	}
 
@@ -327,9 +733,9 @@ void DrawMap(mapType** grid)
 			sprintf(buf, "%i\t", grid[i][j]);
 			SumString(map, buf);
 		}
-		SumString(map,"\n\n\n");
+		SumString(map, "\n\n\n");
 	}
-	SumString(map,"\n\n\n");
+	SumString(map, "\n\n\n");
 	printf("%s", map);
 }
 
@@ -337,9 +743,18 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, 
 {
 	//https://nrsyed.com/2017/12/30/animating-the-grassfire-path-planning-algorithm/
 	// Algorytn is based on finnding path starting from the end to start 
-	Queue search_queue ,path;
+	Queue search_queue, path;
 	search_queue.AddNode(end_position);
 
+	if (!(end_position.X >= 0 && end_position.Y >= 0 && end_position.X < WIDTH && end_position.Y < HEIGHT))
+		return path;
+
+	if (start_position.X == end_position.X && start_position.Y == end_position.Y)
+	{
+		path.AddNode(start_position);
+		return path;
+	}
+	
 	mapType** grid = (mapType**)malloc(sizeof(mapType*) * HEIGHT);	// copy original battlefield 
 	for (int i = 0; i < HEIGHT; i++)
 	{
@@ -350,7 +765,7 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, 
 		}
 	}
 
-	for(int i = 0; i < amount; i++)
+	for (int i = 0; i < amount; i++)
 	{
 		Vec2f pos = characters[i].position;
 		grid[(int)pos.Y][(int)pos.X] = obstacle;
@@ -363,7 +778,7 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, 
 
 	grid[end_position.Y][end_position.X] = battlefield[end_position.Y][end_position.X] + 1;			//End point designation
 
-	while (!search_queue.IsEmpty() && path.IsEmpty()) 
+	while (!search_queue.IsEmpty() && path.IsEmpty())
 	{
 		const Vec2i current_pos = search_queue.FirstNode->position;
 		search_queue.DeleteFirstNode();
@@ -374,7 +789,7 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, 
 			for (int j = -1; j <= 1; j++)
 				if (i * j == 0 && i != j)
 				{
-					Vec2i neighbour = { current_pos.X + i,  current_pos.Y + j};
+					Vec2i neighbour = { current_pos.X + i,  current_pos.Y + j };
 					if (neighbour.X == start_position.X && neighbour.Y == start_position.Y)
 					{
 						path.AddNode(neighbour);
@@ -391,7 +806,7 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, 
 				}
 	}
 
-	search_queue.Clear(); 
+	search_queue.Clear();
 	DrawMap(grid);			//TODO: on assection-based for debug configuration
 	if (path.FirstNode)
 	{
@@ -403,7 +818,7 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, 
 				for (int j = -1; j <= 1; j++)
 					if (i * j == 0 && i != j)
 					{
-						Vec2i neighbour{ current_pos.X + i, current_pos.Y + j};
+						Vec2i neighbour{ current_pos.X + i, current_pos.Y + j };
 						if (neighbour.X >= 0 && neighbour.Y >= 0 && neighbour.X < WIDTH && neighbour.Y < HEIGHT)
 						{
 							if (grid[neighbour.Y][neighbour.X] == next_value)
@@ -425,28 +840,50 @@ Queue FindPath(Vec2i start_position, Vec2i end_position, mapType** battlefield, 
 	return path;
 }
 
-void CharactersInit(Character* arr, int amount, Vec2i PointSize, SDL_Renderer* renderer, float character_speed)
+//void CharactersInit(Character* arr, int amount, Vec2i CellSize, SDL_Renderer* renderer, float character_speed)
+//{
+//	int above_indent = 1;
+//	int size_indent = 1;
+//	for (int i = 0; i < amount; i++)
+//	{
+//		if (!(i % 2))
+//			arr[i].Init("image.png", CellSize, { (float)size_indent, (float)above_indent + (i / 2) }, renderer,  character_speed);
+//		else
+//			arr[i].Init("image.png", CellSize, { (float)WIDTH - 1 - size_indent, (float)above_indent + (i / 2) }, renderer, character_speed, Blue);
+//	}
+
+void Squad_Init(Squad* arr,int amount, Vec2i texSize, SDL_Renderer* renderer, float attackPower, float health, float ch_speed)
 {
 	int above_indent = 1;
 	int size_indent = 1;
-	for (int i = 0; i < amount ; i++)
+	for (int i = 0; i < amount; i++)
 	{
-		if(!(i%2))
-			arr[i].Init("image.png", PointSize, { (float)size_indent, (float)above_indent + (i / 2) }, renderer, character_speed, Red);
+		if (!(i % 2))
+			arr[i] = Squad("image_red.png", texSize, { (float)size_indent, (float)above_indent + (i / 2) }, renderer, attackPower, health, ch_speed, 10);
 		else
-			arr[i].Init("image.png", PointSize, { (float)WIDTH - 1 - size_indent, (float)above_indent + (i / 2) }, renderer, character_speed, Blue);
+			arr[i] = Squad("image_blue.png", texSize, { (float)WIDTH - 1 - size_indent, (float)above_indent + (i / 2) }, renderer, attackPower, health, ch_speed, 10);
 	}
 }
 
-void ObstacleGenerate(mapType** battlefield,int min_amount, int max_amount)
+void ObstacleGenerate(mapType** battlefield, int min_amount, int max_amount)
 {
-	int amount = rand() % (max_amount- min_amount) + min_amount;
+	int amount = rand() % (max_amount - min_amount) + min_amount;
 	for (int i = 0; i < amount; i++)
 	{
 		int x = rand() % WIDTH;
 		int y = rand() % HEIGHT;
 		battlefield[y][x] = obstacle;
 	}
+}
+
+bool SquadsAreMove(Squad* squads, int amount)
+{
+	for (int i = 0; i < amount; i++)
+	{
+		if (squads[i].IsMove())
+			return true;
+	}
+	return false;
 }
 
 int main(int argc, char* argv[])
@@ -462,39 +899,33 @@ int main(int argc, char* argv[])
 
 	SDL_SetRenderDrawColor(renderer, 125, 125, 125, 255);		//fill empty with color
 
-	Image BlackRect;
-	
-	int CharactersAmount = 16; 
-	int PlayerAmount = CharactersAmount / 2;
-	int EnemyAmount = CharactersAmount / 2;
-	Character* Characters = new Character[CharactersAmount];
+
+	int SquadsAmount = 16;
+	int PlayerAmount = SquadsAmount / 2;
+	int EnemyAmount = SquadsAmount / 2;
+
+	Team RedTeam(Red);
+	Team BlueTeam(Blue);
+
+	Squad* Squads = new Squad[SquadsAmount];
 
 	float character_speed = 10.0f;
 
-	Vec2i PointSize{ SCREEN_WIDTH / WIDTH , SCREEN_HIGHT / HEIGHT }; //size of 1 part of screen in pixels
+	Vec2i CellSize{ SCREEN_WIDTH / WIDTH , SCREEN_HIGHT / HEIGHT }; //size of 1 part of screen in pixels
 
-	CharactersInit(Characters, CharactersAmount, PointSize, renderer, character_speed);
+	Squad_Init(Squads, SquadsAmount, CellSize, renderer, 100, 200, character_speed);
 
-	Character** PlayerCommand = new Character * [PlayerAmount];
-	Character** EnemyCommand = new Character * [EnemyAmount];
-
-	for (int i = 0; i < CharactersAmount; i++)
+	for (int i = 0; i < SquadsAmount; i++)
 	{
-		static int Pindex = 0, Eindex = 0;
-		if (Characters[i].side == Red)
-		{
-			PlayerCommand[Pindex] = &Characters[i];
-			Pindex++;
-		}
+		if (!(i % 2))
+			RedTeam.AddSquad(Squads + i);
 		else
-		{
-			EnemyCommand[Eindex] = &Characters[i];
-			Eindex++;
-		}
-
+			BlueTeam.AddSquad(Squads + i);
 	}
 
-	BlackRect.CreateRGBRect(renderer, { 0, 0, 0, 0 }, PointSize);	//I will use it for obstacle
+
+	Image BlackRect;
+	BlackRect.CreateRGBRect(renderer, { 0, 0, 0, 0 }, CellSize);	//I will use it for obstacle
 
 	mapType** battlefield = (mapType**)malloc(sizeof(mapType*) * HEIGHT);
 	for (int i = 0; i < HEIGHT; i++)
@@ -506,9 +937,8 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	ObstacleGenerate(battlefield,10, 20);
+	ObstacleGenerate(battlefield, 10, 20);
 
-	Queue Path;
 	bool done = false;
 	SDL_Event sdl_event;
 	float Deltatime = 0.016;
@@ -516,7 +946,7 @@ int main(int argc, char* argv[])
 	int PartIndex = 0;
 	int Pindex = 0;
 	int Eindex = 0;
-	Character* CharacterToMove= PlayerCommand[0];
+	//Squad* CharacterToMove = PlayerCommand[0];
 	while (!done)				//start main cycle  for game
 	{
 		int lasttime = SDL_GetTicks();
@@ -541,16 +971,13 @@ int main(int argc, char* argv[])
 					break;
 				}
 			}
-			else if (sdl_event.type == SDL_MOUSEBUTTONDOWN)	
+			else if (sdl_event.type == SDL_MOUSEBUTTONDOWN)
 			{
-				// When LBM was clicked i start finding path
 				switch (sdl_event.button.button)
 				{
 				case SDL_BUTTON_LEFT:
 				{
 					LBM = true;
-					
-					break;
 				}
 				default:
 					break;
@@ -560,18 +987,18 @@ int main(int argc, char* argv[])
 
 		SDL_RenderClear(renderer);
 
+
+
 		if (LBM && PlayerPart)
 		{
 			LBM = false;
 			PlayerPart = false;
 			CharacterIsMove = true;
-			CharacterToMove = PlayerCommand[Pindex % PlayerAmount];
-			Pindex++;
 			Vec2i screen_mouse_pos, world_mouse_pos;
 			SDL_GetMouseState(&screen_mouse_pos.X, &screen_mouse_pos.Y);
-			world_mouse_pos = { screen_mouse_pos.X / PointSize.X, screen_mouse_pos.Y / PointSize.Y };
+			world_mouse_pos = { screen_mouse_pos.X / CellSize.X, screen_mouse_pos.Y / CellSize.Y };
 			int last = SDL_GetTicks();
-			CharacterToMove->MoveInit(FindPath({ (int)CharacterToMove->position.X, (int)CharacterToMove->position.Y }, world_mouse_pos, battlefield, Characters, CharactersAmount));	//get the path from function
+			RedTeam.MakeAction(world_mouse_pos, &BlueTeam, battlefield);	//get the path from function
 			printf("\n%i", SDL_GetTicks() - last);
 		}
 
@@ -580,20 +1007,12 @@ int main(int argc, char* argv[])
 			EnemyPart = false;
 			CharacterIsMove = true;
 			Vec2i goal = { rand() % WIDTH, rand() % HEIGHT };
-			Vec2f pos = EnemyCommand[Eindex % EnemyAmount]->position;
-			Queue Path = FindPath({ (int)pos.X, (int)pos.Y }, goal, battlefield, Characters, CharactersAmount);
-			while (Path.IsEmpty())
-			{
-				goal = { rand() % WIDTH, rand() % HEIGHT };
-				Path = FindPath({ (int)pos.X, (int)pos.Y }, goal, battlefield, Characters, CharactersAmount);
-			}
-			CharacterToMove = EnemyCommand[Eindex % EnemyAmount];
-			Eindex++;
-			CharacterToMove->MoveInit(Path);
+
+			BlueTeam.MakeActionAI(&RedTeam, battlefield);
 
 		}
-		
-		if (CharacterIsMove && !(CharacterToMove->IsMove()))
+
+		if (CharacterIsMove && !SquadsAreMove(Squads, SquadsAmount))
 		{
 			CharacterIsMove = false;
 			PartIndex++;
@@ -606,9 +1025,11 @@ int main(int argc, char* argv[])
 				PlayerPart = true;
 			}
 		}
-		
-		CharacterToMove->Move(Deltatime);
 
+		if (!RedTeam.amount || !BlueTeam.amount)
+		{
+			done = true;
+		}
 
 		for (int i = 0; i < HEIGHT; i++)
 		{
@@ -621,10 +1042,16 @@ int main(int argc, char* argv[])
 			}
 		}
 
-		for(int i = 0; i < CharactersAmount; i++)
-			Characters[i].Render(renderer);
-
+		for (int i = 0; i < SquadsAmount; i++)
+		{
+			if (Squads[i].amount)
+			{
+				Squads[i].Move(Deltatime);
+				Squads[i].Render(renderer);
+			}
+		}
 		SDL_RenderPresent(renderer);
+		
 		int TotalTime = SDL_GetTicks();
 		int SleepTime = Deltatime * 1000 - (TotalTime - lasttime);
 		if (SleepTime > 0)
@@ -639,13 +1066,9 @@ int main(int argc, char* argv[])
 		free(battlefield[i]);
 	}
 
-
-
 	free(battlefield);
-	Path.Clear();
+	TTF_Quit();
 	BlackRect.Destroy();
-	Characters[0].Destroy();
-	delete[] Characters;
 	SDL_DestroyRenderer(renderer);
 
 	SDL_DestroyWindow(window);
