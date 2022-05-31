@@ -463,23 +463,13 @@ void Team::AddSquad(Squad* squad_to_add)
 
 Squad* Team::GetSquadByIndex(int index)
 {
-	int real_index = - 1;
-	for (int  i = 0; real_index < amount; i++)
-	{
-		if (squads[i]->amount)
-		{
-			real_index++;
-		}
-		if (real_index == index)
-		{
-			return squads[i];
-		}
-	}
+	return squads[index];
 }
+
 
 Squad* Team::GetCurrentTourSquad()
 {
-	return squads[squad_index];
+	return GetSquadByIndex(squad_index);
 }
 
 void Squad::Attack()
