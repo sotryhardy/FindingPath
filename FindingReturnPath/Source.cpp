@@ -430,7 +430,6 @@ struct Team
 	void MakeAction(Vec2i goal, Team* team_to_attack, uchar** battlefield);
 	Squad* GetSquadByIndex(int index);
 	Squad* GetCurrentTourSquad();
-	int GetRealIndex(int index);
 	void MakeActionAI(Team* team_to_attack, mapType** battlefield);
 	Character* GatherEveryCharacters(Team* EnemyTeam, int* size);
 	void DeleteKilledSquad();
@@ -478,27 +477,9 @@ Squad* Team::GetSquadByIndex(int index)
 	}
 }
 
-
-
-int Team::GetRealIndex(int index)
-{
-	int array_index = -1;
-	for (int i = 0; array_index < amount; i++)
-	{
-		if (squads[i]->amount)
-		{
-			array_index++;
-		}
-		if (array_index == index)
-		{
-			return i;
-		}
-	}
-}
-
 Squad* Team::GetCurrentTourSquad()
 {
-	return squads[GetRealIndex(squad_index)];
+	return squads[squad_index];
 }
 
 void Squad::Attack()
