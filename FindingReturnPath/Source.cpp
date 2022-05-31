@@ -947,7 +947,7 @@ int main(int argc, char* argv[])
 
 	Vec2i CellSize{ SCREEN_WIDTH / WIDTH , SCREEN_HIGHT / HEIGHT }; //size of 1 part of screen in pixels
 
-	Squad_Init(Squads, SquadsAmount, CellSize, renderer, 300, 200, character_speed);
+	Squad_Init(Squads, SquadsAmount, CellSize, renderer, 100, 200, character_speed);
 
 	for (int i = 0; i < SquadsAmount; i++)
 	{
