@@ -76,7 +76,7 @@ char* toArray(int number)
 	for (i = n - 1; i >= 0; --i)
 	{
 		numberArray[i] = (number % 10) + '0';
-		number /= 10
+		number /= 10;
 	}
 
 	return numberArray;
