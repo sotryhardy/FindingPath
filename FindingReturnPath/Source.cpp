@@ -70,16 +70,13 @@ struct Vec4c
 char* toArray(int number)
 {
 	int n = log10(number) + 1;
-	if (number == 0)
-	{
-		n = 1;
-	}
 	int i;
-	char* numberArray = (char*)calloc(n + 1, sizeof(char));
+	char* numberArray = (char*)malloc((n + 1) * sizeof(char));
 	numberArray[n] = '\0';
-	for (i = n - 1; i >= 0; --i, number /= 10)
+	for (i = n - 1; i >= 0; --i)
 	{
 		numberArray[i] = (number % 10) + '0';
+		number /= 10
 	}
 
 	return numberArray;
